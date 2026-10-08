@@ -151,6 +151,7 @@ Wealth-agentic-rag/
 │   └── main.py                # FastAPI app, templates and static files
 ├── data/sample_kb/            # Fictional sample documents loaded by ingest_sample_kb.py
 ├── tests/                     # pytest test suite
+│   └── eval/                  # answer-quality evaluation: questions, scorer, runner, report
 ├── .github/workflows/tests.yml # CI/CD pipeline: tests, Sonar, security scans, build, deploy
 ├── templates/index.html       # Web interface
 ├── static/                    # CSS and JavaScript for the interface
@@ -237,7 +238,7 @@ The file is chunked, embedded and stored in Pinecone immediately, and is availab
 
 ## Testing
 
-The project has 36 automated tests, run with pytest on every push through GitHub Actions, with coverage reported to SonarQube Cloud.
+The project has 45 automated tests, run with pytest on every push through GitHub Actions, with coverage reported to SonarQube Cloud.
 
 | Layer | File | What it checks |
 |---|---|---|
@@ -247,6 +248,8 @@ The project has 36 automated tests, run with pytest on every push through GitHub
 
 The workflow tests replace OpenAI, Pinecone and Tavily with fakes that return scripted answers, so they are fast, free and deterministic, and need no API keys.
 
+| Evaluation scorer | `tests/test_eval_scoring.py` | The answer-quality scorer itself: it must fail wrong facts, wrong sources, wrong paths, ungrounded answers and invented figures |
+
 Run them locally:
 
 ```bash
@@ -254,6 +257,31 @@ pip install pytest pytest-mock httpx pytest-cov
 pytest -v
 pytest --cov=app --cov-report=term    # with a coverage report
 ```
+
+---
+
+## Answer-quality evaluation
+
+The automated tests check the agent's **logic** with a fake LLM. The evaluation checks the **real system's answers**: it asks the live agent (real OpenAI, Pinecone and Tavily) questions whose correct answers are known, and scores every answer.
+
+```bash
+python tests/eval/run_eval.py                  # all cases, public-demo namespace
+python tests/eval/run_eval.py --only scanned   # only the scanned-document cases
+```
+
+**What each case checks** (`tests/eval/questions.yaml`)
+
+| Check | Question it answers |
+|---|---|
+| Facts | Does the answer contain the expected facts, e.g. "10 business days"? |
+| Source | Does it cite the right document? |
+| Path | Did the agent take the expected route: documents, web, direct, or "not enough evidence"? |
+| Grounded | Do the expected facts appear in the chunks the agent actually retrieved, so the answer comes from the source and not from the model's memory? |
+| No invention | On trap questions the documents don't cover, does the agent avoid inventing a figure? |
+
+The set covers every sample document, including facts that exist only in the **scanned PDF** (proving OCR end to end), routing cases, and trap questions. Each run writes `tests/eval/eval_report.md` with the date, commit, a per-case table and the full answer for every failure, and exits with an error if the pass rate is below the threshold (85% by default), so it can serve as a quality gate.
+
+The evaluation never runs with plain `pytest` or in the CI pipeline, because it uses the real APIs: one run costs a few cents. The scorer itself is unit-tested for free in `tests/test_eval_scoring.py`.
 
 ---
 
@@ -278,7 +306,7 @@ flowchart LR
 
 | Stage | Tool | Blocks deployment when |
 |---|---|---|
-| Tests | pytest | Any of the 36 tests fails |
+| Tests | pytest | Any of the 45 tests fails |
 | Code quality | SonarQube Cloud | Reported only (quality gate visible in the badge) |
 | Secret scan | gitleaks | A password or key is found anywhere in the repository history |
 | Dependency scan | pip-audit | A Python dependency has a known vulnerability |
@@ -391,7 +419,6 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 
 ## Roadmap
 
-- **Answer-quality evaluation:** score the real agent against a fixed set of questions and expected answers.
 - **End-to-end tests:** Playwright tests against the live deployment, run after each deploy.
 - **BDD scenarios:** agent behaviours described as Given/When/Then scenarios with pytest-bdd.
 - **Blocking quality gate:** make the SonarQube Cloud quality gate block deployment.

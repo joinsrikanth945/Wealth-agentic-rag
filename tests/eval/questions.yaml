@@ -1,0 +1,119 @@
+# Answer-quality evaluation set for the Agentic RAG assistant.
+# Each case describes what a correct answer looks like:
+#   expected_facts   facts the answer must contain. A fact can be a list of
+#                    accepted alternatives, e.g. ["250,000", "250 000"].
+#   expected_source  document that must be cited (private knowledge base cases)
+#   expected_path    route(s) the agent may take: private_kb, web_search,
+#                    direct, insufficient_evidence
+#   forbidden_facts  facts that must NOT appear (used for trap questions)
+# Grounding is checked automatically for private_kb cases: every expected fact
+# must also appear in the chunks the agent retrieved.
+
+# ---------- Advisor Workstation guide ----------
+- id: advisor-session-timeout
+  question: After how many minutes of inactivity does an Advisor Workstation session time out?
+  expected_facts: ["20 minutes"]
+  expected_source: advisor_workstation_guide.md
+  expected_path: [private_kb]
+
+- id: advisor-four-eyes
+  question: Above what order value is four-eyes approval required in the Advisor Workstation?
+  expected_facts: [["250,000", "250 000", "250000"]]
+  expected_source: advisor_workstation_guide.md
+  expected_path: [private_kb]
+
+- id: advisor-risk-review
+  question: How often must a client's risk profile be reviewed?
+  expected_facts: [["24 months", "two years", "2 years"]]
+  expected_source: advisor_workstation_guide.md
+  expected_path: [private_kb]
+
+- id: advisor-overdue-escalation
+  question: When are overdue compliance tasks escalated to the team lead?
+  expected_facts: ["10 business days"]
+  expected_source: advisor_workstation_guide.md
+  expected_path: [private_kb]
+
+# ---------- Client channels guide ----------
+- id: channels-activation-link
+  question: How long is a client's digital activation link valid?
+  expected_facts: ["72 hours"]
+  expected_source: client_channels_guide.md
+  expected_path: [private_kb]
+
+- id: channels-locked-account
+  question: After how many failed sign-in attempts is a client account locked?
+  expected_facts: [["5 failed", "five failed"]]
+  expected_source: client_channels_guide.md
+  expected_path: [private_kb]
+
+- id: channels-tax-reports
+  question: By what date are annual tax reports published in the client portal?
+  expected_facts: ["31 March"]
+  expected_source: client_channels_guide.md
+  expected_path: [private_kb]
+
+- id: channels-message-reply
+  question: How quickly must a relationship manager reply to a client's secure message?
+  expected_facts: [["2 business days", "two business days"]]
+  expected_source: client_channels_guide.md
+  expected_path: [private_kb]
+
+# ---------- Secure access token guide ----------
+- id: token-registration-expiry
+  question: How long is the LumenKey registration code valid?
+  expected_facts: ["15 minutes"]
+  expected_source: secure_access_token_guide.md
+  expected_path: [private_kb]
+
+- id: token-lost-phone
+  question: How long is the temporary access code valid after a user loses the phone with their LumenKey token?
+  expected_facts: ["8 hours"]
+  expected_source: secure_access_token_guide.md
+  expected_path: [private_kb]
+
+- id: token-locked
+  question: What should a user do if their LumenKey token is locked?
+  expected_facts: ["30 minutes"]
+  expected_source: secure_access_token_guide.md
+  expected_path: [private_kb]
+
+# ---------- Scanned fee schedule (readable only through OCR) ----------
+- id: scanned-custody-fee
+  question: What is the annual custody fee at LumenWealth?
+  expected_facts: ["0.25%"]
+  expected_source: lumenwealth_fee_schedule_scanned.pdf
+  expected_path: [private_kb]
+
+- id: scanned-account-closure
+  question: How long does it take to process an account closure request?
+  expected_facts: ["10 business days"]
+  expected_source: lumenwealth_fee_schedule_scanned.pdf
+  expected_path: [private_kb]
+
+- id: scanned-transfer-fee
+  question: What is the fee for transferring a portfolio to another bank?
+  expected_facts: ["50 EUR", "500 EUR"]
+  expected_source: lumenwealth_fee_schedule_scanned.pdf
+  expected_path: [private_kb]
+
+- id: scanned-fee-waiver
+  question: Who must approve a fee waiver above 1,000 EUR?
+  expected_facts: ["Head of Private Banking"]
+  expected_source: lumenwealth_fee_schedule_scanned.pdf
+  expected_path: [private_kb]
+
+# ---------- Routing ----------
+- id: route-greeting
+  question: Hello, good morning!
+  expected_path: [direct]
+
+- id: route-web
+  question: What is the latest Microsoft Teams outage guidance?
+  expected_path: [web_search, insufficient_evidence]
+
+# ---------- Trap: the documents don't cover this, so no LumenWealth figure may be invented ----------
+- id: trap-crypto-custody
+  question: What is LumenWealth's custody fee for crypto assets?
+  expected_path: [web_search, insufficient_evidence]
+  forbidden_facts: ["0.25%"]
