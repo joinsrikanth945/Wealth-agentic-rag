@@ -1,5 +1,16 @@
 # Agentic RAG Assistant for Wealth Banking Support
 
+![Tests](https://github.com/joinsrikanth945/Wealth-agentic-rag/actions/workflows/tests.yml/badge.svg)
+
+**Live demo:** https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io
+
+An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about ...
+
+
+
+
+# Agentic RAG Assistant for Wealth Banking Support
+
 An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about wealth banking platforms and authentication setup, using the organization's own documents first and the public web only when the documents fall short.
 
 Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer.
