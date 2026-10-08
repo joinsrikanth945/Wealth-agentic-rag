@@ -122,6 +122,8 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.smoke.outputs.url }}
     steps:
       - name: Log in to Azure
         uses: azure/login@v2
@@ -137,10 +139,12 @@ jobs:
             --image "$IMAGE:${{ github.sha }}"
 
       - name: Smoke test the live app
+        id: smoke
         run: |
           FQDN=$(az containerapp show --name "$CONTAINER_APP" --resource-group "$RESOURCE_GROUP" \
                  --query properties.configuration.ingress.fqdn -o tsv)
           echo "Checking https://$FQDN"
+          echo "url=https://$FQDN" >> "$GITHUB_OUTPUT"
           for i in $(seq 1 18); do
             for path in /health /api/health; do
               if curl -fsS --max-time 20 "https://$FQDN$path" > /dev/null; then
@@ -153,3 +157,34 @@ jobs:
           done
           echo "Smoke test failed: the deployed app did not respond"
           exit 1
+
+  # 6. End-to-end tests: a real browser (Playwright) against the freshly deployed app
+  e2e:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright and Chromium
+        run: |
+          pip install pytest pytest-playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run end-to-end tests against the live deployment
+        env:
+          E2E_BASE_URL: ${{ needs.deploy.outputs.url }}
+        run: pytest tests/e2e -v --tracing retain-on-failure --screenshot only-on-failure --output test-results
+
+      - name: Upload screenshots and traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 7

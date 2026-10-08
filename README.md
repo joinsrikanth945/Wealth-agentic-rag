@@ -127,7 +127,7 @@ Documents go through the same steps whether they come from the sample folder or 
 | Frontend | HTML (Jinja2 templates), CSS, JavaScript |
 | OCR | Tesseract (pytesseract), pypdfium2 for rendering PDF pages |
 | Audit log | SQLite |
-| Testing | pytest, pytest-mock, pytest-cov, FastAPI TestClient |
+| Testing | pytest, pytest-mock, pytest-cov, FastAPI TestClient, Playwright |
 | CI/CD | GitHub Actions |
 | Code quality | SonarQube Cloud (quality gate, coverage, security hotspots) |
 | Security scanning | gitleaks (secrets), pip-audit (dependencies), Trivy (container image) |
@@ -248,6 +248,7 @@ The project has 45 automated tests, run with pytest on every push through GitHub
 
 The workflow tests replace OpenAI, Pinecone and Tavily with fakes that return scripted answers, so they are fast, free and deterministic, and need no API keys.
 
+| End-to-end (browser) | `tests/e2e/test_demo_e2e.py` | 5 Playwright tests in a real Chromium browser against the deployed app: page loads, a document answer with citation and trace, a direct answer, the issue #1 trap question, and upload refused without the admin key. Run after every deployment |
 | Evaluation scorer | `tests/test_eval_scoring.py` | The answer-quality scorer itself: it must fail wrong facts, wrong sources, wrong paths, ungrounded answers and invented figures |
 
 Run them locally:
@@ -256,6 +257,14 @@ Run them locally:
 pip install pytest pytest-mock httpx pytest-cov
 pytest -v
 pytest --cov=app --cov-report=term    # with a coverage report
+```
+
+The end-to-end tests are skipped unless `E2E_BASE_URL` is set. To run them against the live demo (a few real LLM calls, about 1–2 cents):
+
+```bash
+pip install pytest-playwright
+python -m playwright install chromium
+E2E_BASE_URL=https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io pytest tests/e2e -v
 ```
 
 ---
@@ -302,6 +311,7 @@ flowchart LR
     V -->|clean| H[Push to Docker Hub<br/>tagged with commit ID]
     H --> A[Deploy to Azure<br/>Container Apps]
     A --> K[Smoke test<br/>/health]
+    K --> E[End-to-end tests<br/>Playwright, real browser]
 ```
 
 | Stage | Tool | Blocks deployment when |
@@ -313,6 +323,7 @@ flowchart LR
 | Image scan | Trivy | The Docker image has a HIGH or CRITICAL vulnerability with a fix available |
 | Deploy | Azure CLI | The Container App cannot be updated |
 | Smoke test | curl | The live app does not respond within about 3 minutes |
+| End-to-end | Playwright (Chromium) | A user flow fails in the deployed app; screenshots and a trace recording of failed tests are attached to the run |
 
 **Safeguards**
 
@@ -419,7 +430,6 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 
 ## Roadmap
 
-- **End-to-end tests:** Playwright tests against the live deployment, run after each deploy.
 - **BDD scenarios:** agent behaviours described as Given/When/Then scenarios with pytest-bdd.
 - **Blocking quality gate:** make the SonarQube Cloud quality gate block deployment.
 - **Incremental ingestion:** process only new or changed files, with fixed chunk IDs to prevent duplicates.
