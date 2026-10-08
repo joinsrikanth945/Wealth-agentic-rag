@@ -4,22 +4,15 @@
 
 **Live demo:** https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io
 
-An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about ...
+An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about wealth banking platforms and secure access, using the organization's own documents first and the public web only when the documents fall short.
 
-
-
-
-# Agentic RAG Assistant for Wealth Banking Support
-
-An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about wealth banking platforms and authentication setup, using the organization's own documents first and the public web only when the documents fall short.
-
-Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer.
+Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer. Tested with **pytest** and deployed on **Azure Container Apps**.
 
 ---
 
 ## The problem
 
-Teams supporting a wealth banking platform rely on long vendor guides and configuration documents: channel user guides, front office manuals, authentication setup instructions. Finding the right answer is slow:
+Teams supporting a wealth banking platform rely on long vendor guides and configuration documents: client channel guides, front office manuals, authentication setup instructions. Finding the right answer is slow:
 
 - The guides run to hundreds of pages, and keyword search returns too many hits.
 - A general-purpose chatbot doesn't know the internal documents and may invent answers.
@@ -27,73 +20,78 @@ Teams supporting a wealth banking platform rely on long vendor guides and config
 
 ## The solution
 
-The assistant reads the organization's documents, finds the passages relevant to a question, **checks whether they actually answer it**, and only then responds, citing its sources. When the documents aren't enough, it rewrites the question and retries, and falls back to a web search, labeling web sources separately from internal ones.
+The assistant reads the organization's documents, finds the passages relevant to a question, **checks whether they actually answer it**, and only then responds, citing its sources. When the documents aren't enough, it searches the web and grades those results too. If neither is good enough, it rewrites the question and tries again, and if it still can't find reliable evidence, it says so instead of guessing.
 
-Example questions:
+Example questions for the demo:
 
-- *How do I configure HID authentication for a new user?*
-- *What can a relationship manager do in the Front Office module?*
-- *Which customer channels are supported, and how are they set up?*
+- *How long is a client's digital activation link valid?*
+- *What happens when an order fails the suitability check?*
+- *How do I register a LumenKey token for a new user?*
+- *What should I do if a user loses the phone with their token?*
 
 ---
 
 ## Knowledge base
 
-| Document | Format | Covers |
-|---|---|---|
-| Channels User Guide | PDF | The wealth banking platform's customer channels and their use |
-| Front Office User Guide | PDF | Front office functions for advisors and relationship managers |
-| Setup Configuration HID | Word (.docx) | Setting up and configuring HID authentication |
-| Company IT Handbook | Markdown | Sample internal IT policies (included demo data) |
-| Service Desk Runbook | Markdown | Sample service desk procedures (included demo data) |
+Real vendor documentation is proprietary, so **none of it is included in this repository or used by the public demo**. The demo uses fictional sample documents written for this project, about a made-up platform called LumenWealth:
 
-> **The banking and HID documents are not included in this repository**, as they are third-party material. Add your own documents through the interface (see [Adding documents](#adding-documents)).
+| Document | Covers |
+|---|---|
+| `advisor_workstation_guide.md` | Front office: client dashboard, orders, suitability checks, risk profiles, compliance tasks |
+| `client_channels_guide.md` | Client web portal and mobile app: enrolment, statements, secure messaging, locked accounts |
+| `secure_access_token_guide.md` | MFA token app: registration, moving to a new phone, lost devices, common problems |
+| `company_it_handbook.md` | Sample internal IT policies |
+| `service_desk_runbook.md` | Sample service desk procedures |
+
+All sample documents are in `data/sample_kb/`. To use the assistant with your own documents, upload them through the interface (see [Adding documents](#adding-documents)).
 
 ---
 
 ## How the agent works
 
-Unlike a basic RAG pipeline, which always retrieves once and answers, this agent decides **how** to answer each question and **checks its own evidence** before responding. The workflow is a LangGraph state graph:
+Unlike a basic RAG pipeline, which always retrieves once and answers, this agent decides **how** to answer each question and **checks its own evidence** before responding. The workflow is a LangGraph state graph (`app/rag/workflow.py`):
 
 ```mermaid
 flowchart TD
     Q([User question]) --> R{Route}
-    R -->|General question| D[Answer directly]
-    R -->|Internal knowledge| RET[Retrieve from Pinecone]
-    R -->|Current / public info| WEB[Web search - Tavily]
+    R -->|Greeting or small talk| D[Answer directly]
+    R -->|Work question| RET[Retrieve from Pinecone]
 
-    RET --> G{Grade evidence}
-    G -->|Relevant| GEN[Generate answer from documents]
-    G -->|Not relevant, retries left| RW[Rewrite question] --> RET
-    G -->|Not relevant, no retries left| WEB
+    RET --> GK{Grade KB evidence}
+    GK -->|Good| GEN[Answer from documents]
+    GK -->|Weak| WEB[Web search - Tavily]
 
-    WEB --> GENW[Generate answer from web results]
+    WEB --> GW{Grade web evidence}
+    GW -->|Good| GENW[Answer from web]
+    GW -->|Weak, retries left| RW[Rewrite query] --> RET
+    GW -->|Weak, no retries left| INS[Honest stop: not enough evidence]
 
     D --> OUT([Answer + citations + trace])
     GEN --> OUT
     GENW --> OUT
-    OUT --> AUD[(Audit log)]
+    INS --> OUT
 ```
 
 ### Phases
 
 | # | Phase | What happens |
 |---|---|---|
-| 1 | **Route** | An LLM classifies the question and picks a path: answer directly, search the internal documents, or go to the web. |
+| 1 | **Route** | An LLM decides whether the question needs the knowledge base, or is small talk it can answer directly. |
 | 2 | **Retrieve** | The question is embedded and the closest document chunks are fetched from Pinecone. |
-| 3 | **Grade** | An LLM judges whether the retrieved chunks actually answer the question, so the agent doesn't answer from irrelevant text. |
-| 4 | **Rewrite & retry** | If the evidence is weak, the question is reworded (for example, using the documents' terminology) and retrieval runs again, up to a set limit. |
-| 5 | **Web search** | If the documents still don't help, or the question needs current public information, Tavily searches the web. |
-| 6 | **Generate** | The answer is written strictly from the chosen evidence. Document answers are restricted to the knowledge base; web answers state that internal documents were insufficient. |
-| 7 | **Cite & audit** | Sources are returned as citations, labeled *private KB* or *web*. The question, path taken and sources are logged for auditing. |
+| 3 | **Grade KB evidence** | An LLM judges whether the chunks are enough to answer confidently. |
+| 4 | **Web search** | If the documents are weak, Tavily searches the web. |
+| 5 | **Grade web evidence** | The web results are graded too. |
+| 6 | **Rewrite & retry** | If both are weak, the question is rewritten and the agent searches the documents again, up to `max_retries`. |
+| 7 | **Generate or stop** | The answer is written strictly from the chosen evidence, with citations. If nothing is good enough, the agent says so instead of guessing. |
 
-### The three answer paths
+### The answer paths
 
-- **Direct:** general questions that need no lookup are answered by the LLM without retrieval, which saves time and cost.
-- **Private knowledge base:** the main path. Answers come only from your documents, with the source file cited.
-- **Web:** the fallback for questions the documents can't answer, with web pages cited by URL.
+- **Direct:** greetings and small talk are answered without retrieval, which saves time and cost.
+- **Private knowledge base:** the main path. Answers come only from the documents, with each source file cited once.
+- **Web:** the fallback when the documents can't answer, with web pages cited by URL and a note that the information is external.
+- **Insufficient evidence:** when neither source is reliable, the agent declines rather than inventing an answer.
 
-The interface shows the **trace** for each answer, so you can see which path the agent took and why.
+The interface shows the **trace** for each answer, so you can see which path the agent took and why. Each request is also logged for auditing.
 
 ---
 
@@ -104,7 +102,7 @@ Documents go through the same steps whether they come from the sample folder or 
 1. **Load:** text is extracted from PDF, Word (.docx), text and Markdown files.
 2. **Chunk:** the text is split into small, overlapping passages, so retrieval can return the exact section that answers a question.
 3. **Embed:** each chunk is converted to a vector with OpenAI's `text-embedding-3-small`.
-4. **Store:** vectors are saved in Pinecone, in the `company-it-kb` namespace of the `fde-it-support-rag` index.
+4. **Store:** vectors are saved in Pinecone, in the namespace set by `PINECONE_NAMESPACE`. The public demo uses its own `public-demo` namespace, which contains only the sample documents.
 
 Scanned PDFs (images of pages, with no selectable text) are not supported.
 
@@ -122,25 +120,28 @@ Scanned PDFs (images of pages, with no selectable text) are not supported.
 | Backend API | FastAPI, Uvicorn |
 | Frontend | HTML (Jinja2 templates), CSS, JavaScript |
 | Audit log | SQLite |
-| Deployment | Docker |
+| Testing | pytest, pytest-mock, GitHub Actions |
+| Deployment | Docker, Docker Hub, Azure Container Apps |
 
 ---
 
 ## Project structure
 
 ```
-Agentic-RAG/
+Wealth-agentic-rag/
 ├── app/
 │   ├── api/routes.py          # API endpoints: chat, upload, health, audit
 │   ├── core/config.py         # Settings loaded from .env
 │   ├── core/logging.py        # Logging setup
 │   ├── rag/state.py           # Shared state passed between agent steps
-│   ├── rag/workflow.py        # LangGraph workflow: route, retrieve, grade, rewrite, search, generate
+│   ├── rag/workflow.py        # LangGraph workflow: route, retrieve, grade, search, rewrite, generate
 │   ├── rag/vectorstore.py     # Embeddings, Pinecone connection, retriever
 │   ├── services/ingestion.py  # Document loading and chunking
 │   ├── services/audit.py      # Audit logging
 │   └── main.py                # FastAPI app, templates and static files
-├── data/sample_kb/            # Sample documents loaded by ingest_sample_kb.py
+├── data/sample_kb/            # Fictional sample documents loaded by ingest_sample_kb.py
+├── tests/                     # pytest test suite
+├── .github/workflows/         # GitHub Actions: runs the tests on every push
 ├── templates/index.html       # Web interface
 ├── static/                    # CSS and JavaScript for the interface
 ├── ingest_sample_kb.py        # Loads the sample documents into Pinecone
@@ -162,8 +163,8 @@ Agentic-RAG/
 ### 1. Set up the environment
 
 ```powershell
-git clone https://github.com/YOUR-USERNAME/YOUR-REPO.git
-cd YOUR-REPO
+git clone https://github.com/joinsrikanth945/Wealth-agentic-rag.git
+cd Wealth-agentic-rag
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1        # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
@@ -183,9 +184,10 @@ Copy-Item .env.example .env         # macOS/Linux: cp .env.example .env
 | `PINECONE_API_KEY` | Yes | Vector store |
 | `TAVILY_API_KEY` | Yes | Web search fallback |
 | `ADMIN_API_KEY` | Recommended | Password for uploading documents (default: `change-me`) |
+| `PINECONE_NAMESPACE` | No | Pinecone namespace to read and write (default in `app/core/config.py`) |
 | `APP_NAME` | No | Name shown in the interface |
 
-Other defaults (index name, namespace, models) are in `app/core/config.py` and can be overridden in `.env`.
+Other defaults (index name, models, retry limit) are in `app/core/config.py` and can be overridden in `.env`.
 
 ### 3. Load the sample documents
 
@@ -220,32 +222,30 @@ The file is chunked, embedded and stored in Pinecone immediately, and is availab
 
 ---
 
-## Roadmap
+## Testing
 
-- **Incremental ingestion:** process only new or changed files, with fixed chunk IDs to prevent duplicates.
-- **Document sources:** sync from Google Drive, Shared Drives or network folders.
-- **Evaluation:** measure answer accuracy and retrieval quality on a fixed set of test questions.
-- **Access control:** restrict documents by team or role.
+The project has 31 automated tests, run with pytest on every push through GitHub Actions.
 
----
+| Layer | File | What it checks |
+|---|---|---|
+| Ingestion | `tests/test_ingestion.py` | Loading text, Markdown and Word files; chunking; source tracking |
+| API | `tests/test_api.py` | Health check, chat error handling, upload security (admin key) and file-type validation |
+| Agent workflow | `tests/test_workflow.py` | Every routing decision and path: direct answer, documents, web fallback, query rewrite and retry, honest stop |
 
-## License
+The workflow tests replace OpenAI, Pinecone and Tavily with fakes that return scripted answers, so they are fast, free and deterministic, and need no API keys.
 
-See [LICENSE](LICENSE).
+Run them locally:
 
-![img.png](img.png)
-
-![img_1.png](img_1.png)
-
-
+```bash
+pip install pytest pytest-mock httpx
+pytest -v
+```
 
 ---
 
 ## Deployment
 
 The app runs on **Azure Container Apps**, using a Docker image published to **Docker Hub**.
-
-**Live demo:** https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io
 
 ```mermaid
 flowchart LR
@@ -259,33 +259,41 @@ flowchart LR
 
 | Component | Choice | Why |
 |---|---|---|
-| Source control | GitHub | Version history and public code |
+| Source control | GitHub | Version history; tests run on every push |
 | Packaging | Docker (`python:3.11-slim` base) | Same environment locally and in the cloud |
 | Image registry | Docker Hub (public) | Free hosting for the image |
 | Hosting | Azure Container Apps (Consumption plan) | Serverless containers, HTTPS included |
 | Scaling | 0 to 1 replicas | Scales to zero when idle, so it stays within the free monthly allowance |
 | Resources | 0.5 vCPU, 1 GiB memory | Enough for LangGraph and document processing |
 | Configuration | Container App secrets | API keys are kept out of the image and the repository |
+| Data | Separate `public-demo` namespace | The public demo can only reach the sample documents |
 
 ### Deployment steps
 
 1. **Build the image** from the project folder:
-```bash
+
+   ```bash
    docker build -t agentic-rag .
-```
+   ```
+
 2. **Push it to Docker Hub:**
-```bash
+
+   ```bash
    docker tag agentic-rag joinsrikanth945/agentic-rag:v1
    docker push joinsrikanth945/agentic-rag:v1
-```
+   ```
+
 3. **Create the Azure environment:**
-```bash
+
+   ```bash
    az group create --name agentic-rag-rg --location eastus2
    az containerapp env create --name agentic-rag-env --resource-group agentic-rag-rg \
      --location eastus2 --logs-destination none
-```
+   ```
+
 4. **Deploy the container app**, with API keys passed as secrets:
-```bash
+
+   ```bash
    az containerapp create --name agentic-rag --resource-group agentic-rag-rg \
      --environment agentic-rag-env \
      --image docker.io/joinsrikanth945/agentic-rag:v1 \
@@ -293,8 +301,9 @@ flowchart LR
      --cpu 0.5 --memory 1.0Gi --min-replicas 0 --max-replicas 1 \
      --secrets openai-key=<key> pinecone-key=<key> tavily-key=<key> admin-key=<password> \
      --env-vars OPENAI_API_KEY=secretref:openai-key PINECONE_API_KEY=secretref:pinecone-key \
-                TAVILY_API_KEY=secretref:tavily-key ADMIN_API_KEY=secretref:admin-key
-```
+                TAVILY_API_KEY=secretref:tavily-key ADMIN_API_KEY=secretref:admin-key \
+                PINECONE_NAMESPACE=public-demo
+   ```
 
 ### Releasing a new version
 
@@ -312,8 +321,20 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 
 - **Cold starts:** after a period without traffic, the app scales to zero, so the first request takes a few seconds while it starts.
 - **Storage:** indexed documents live in Pinecone and persist across restarts. Files saved inside the container and the audit log are temporary on this setup.
-- **Cost control:** the OpenAI account has a monthly spending limit, and the Azure subscription has a
+- **Cost control:** the OpenAI account has a monthly spending limit, and the Azure subscription has a budget alert.
 
-Deployed in Azure as a Container App
+---
 
-![img_2.png](img_2.png)
+## Roadmap
+
+- **Answer-quality evaluation:** score the real agent against a fixed set of questions and expected answers.
+- **Incremental ingestion:** process only new or changed files, with fixed chunk IDs to prevent duplicates.
+- **Document sources:** sync from Google Drive, Shared Drives or network folders.
+- **Rate limiting:** limit questions per visitor on the public demo.
+- **Access control:** restrict documents by team or role.
+
+---
+
+## Acknowledgements and license
+
+This project builds on an open-source Agentic RAG project, adapted to the wealth banking domain, extended with a test suite, and deployed to Azure. See [LICENSE](LICENSE) for the license and original copyright.
