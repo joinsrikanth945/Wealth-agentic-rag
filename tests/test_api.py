@@ -8,10 +8,14 @@ client = TestClient(app)
 
 
 def path_for(endpoint):
-    """Find the full path of an endpoint, whatever prefix the router uses."""
-    for route in app.routes:
-        if getattr(route, "path", "").endswith(endpoint):
-            return route.path
+    """Find the full path of an endpoint, whatever prefix the router uses.
+
+    Uses the app's OpenAPI schema, so it works regardless of how FastAPI
+    stores included routers internally.
+    """
+    for path in app.openapi()["paths"]:
+        if path.endswith(endpoint):
+            return path
     raise AssertionError(f"No route ending in {endpoint}")
 
 
@@ -73,3 +77,11 @@ def test_upload_of_supported_file_is_indexed(mocker):
     response = upload("guide.txt", key=admin_key())
     assert response.status_code == 200
     fake_store.assert_called_once()
+
+
+# ---------- Home page ----------
+
+def test_home_page_renders():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "<html" in response.text.lower()
