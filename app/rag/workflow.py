@@ -66,10 +66,14 @@ def grade_kb(state: AgentState):
     grader = llm().with_structured_output(EvidenceGrade, method="json_mode")
     context = "\n\n".join(f"Source: {d.metadata.get('source','unknown')}\n{d.page_content}" for d in state["kb_docs"])
     grade = grader.invoke(f"""
-You grade evidence for an wealth banking support assistant.
+You grade evidence for a wealth banking support assistant.
 Question: {state['question']}
 Private company KB evidence:\n{context}
-Return good only if the evidence is sufficient to answer confidently and specifically.
+Return good only if the evidence explicitly answers this specific question.
+Evidence on a related topic is NOT enough. If the question is about a product, asset class,
+client type, fee, channel or situation that the evidence does not explicitly mention, return weak,
+even if the evidence covers a similar or more general case.
+Example: a general custody fee does not answer a question about the custody fee for crypto assets.
 Otherwise return weak. JSON: {{"grade":"good"}} or {{"grade":"weak"}}.
 """)
     return {"kb_grade": grade.grade, "trace": add_trace(state, f"KB evidence grade → {grade.grade.upper()}")}
@@ -128,9 +132,12 @@ Question: {state['question']}
 def generate_from_kb(state: AgentState):
     context = "\n\n".join(f"[Source: {d.metadata.get('source','unknown')}]\n{d.page_content}" for d in state["kb_docs"])
     answer = llm().invoke(f"""
-You are an wealth banking support copilot. Answer ONLY from the private company KB below.
+You are a wealth banking support copilot. Answer ONLY from the private company KB below.
 Be concise, actionable, and safe. If steps are present, present them clearly.
-Do not invent policy details. Mention that the answer is based on the company's private knowledge base.
+Do not invent policy details. Never extend a figure, fee or rule to a product, asset class, client type
+or situation that the KB does not explicitly mention. If the KB does not cover exactly what was asked,
+say so clearly instead of answering from a similar case.
+Mention that the answer is based on the company's private knowledge base.
 Question: {state['question']}\n\nPrivate KB:\n{context}
 """).content
     citations = []
@@ -144,7 +151,7 @@ Question: {state['question']}\n\nPrivate KB:\n{context}
 
 def generate_from_web(state: AgentState):
     answer = llm().invoke(f"""
-You are an wealth banking support copilot. The private company KB was insufficient.
+You are a wealth banking support copilot. The private company KB was insufficient.
 Answer ONLY from the web evidence below. Clearly say this is external web information and may need IT validation before changing company-managed systems.
 Question: {state['question']}\n\nWeb evidence:\n{state['web_results']}
 """).content
