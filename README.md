@@ -1,12 +1,16 @@
 # Agentic RAG Assistant for Wealth Banking Support
 
-![Tests](https://github.com/joinsrikanth945/Wealth-agentic-rag/actions/workflows/tests.yml/badge.svg)
+[![CI/CD](https://github.com/joinsrikanth945/Wealth-agentic-rag/actions/workflows/tests.yml/badge.svg)](https://github.com/joinsrikanth945/Wealth-agentic-rag/actions/workflows/tests.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=coverage)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
 
 **Live demo:** https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io
 
 An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about wealth banking platforms and secure access, using the organization's own documents first and the public web only when the documents fall short.
 
-Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer. Tested with **pytest** and deployed on **Azure Container Apps**.
+Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer. Tested with **pytest** and delivered through a **CI/CD and DevSecOps pipeline** (GitHub Actions, SonarQube Cloud, gitleaks, pip-audit, Trivy) that deploys automatically to **Azure Container Apps**.
 
 ---
 
@@ -120,7 +124,10 @@ Scanned PDFs (images of pages, with no selectable text) are not supported.
 | Backend API | FastAPI, Uvicorn |
 | Frontend | HTML (Jinja2 templates), CSS, JavaScript |
 | Audit log | SQLite |
-| Testing | pytest, pytest-mock, GitHub Actions |
+| Testing | pytest, pytest-mock, pytest-cov, FastAPI TestClient |
+| CI/CD | GitHub Actions |
+| Code quality | SonarQube Cloud (quality gate, coverage, security hotspots) |
+| Security scanning | gitleaks (secrets), pip-audit (dependencies), Trivy (container image) |
 | Deployment | Docker, Docker Hub, Azure Container Apps |
 
 ---
@@ -141,13 +148,15 @@ Wealth-agentic-rag/
 │   └── main.py                # FastAPI app, templates and static files
 ├── data/sample_kb/            # Fictional sample documents loaded by ingest_sample_kb.py
 ├── tests/                     # pytest test suite
-├── .github/workflows/         # GitHub Actions: runs the tests on every push
+├── .github/workflows/tests.yml # CI/CD pipeline: tests, Sonar, security scans, build, deploy
 ├── templates/index.html       # Web interface
 ├── static/                    # CSS and JavaScript for the interface
 ├── ingest_sample_kb.py        # Loads the sample documents into Pinecone
 ├── run.py                     # Starts the server
-├── Dockerfile
+├── Dockerfile                 # Hardened image: patched OS packages, pip removed at runtime
 ├── requirements.txt
+├── pytest.ini                 # pytest configuration
+├── sonar-project.properties   # SonarQube Cloud settings
 └── .env.example               # Settings template
 ```
 
@@ -224,12 +233,12 @@ The file is chunked, embedded and stored in Pinecone immediately, and is availab
 
 ## Testing
 
-The project has 31 automated tests, run with pytest on every push through GitHub Actions.
+The project has 32 automated tests, run with pytest on every push through GitHub Actions, with coverage reported to SonarQube Cloud.
 
 | Layer | File | What it checks |
 |---|---|---|
 | Ingestion | `tests/test_ingestion.py` | Loading text, Markdown and Word files; chunking; source tracking |
-| API | `tests/test_api.py` | Health check, chat error handling, upload security (admin key) and file-type validation |
+| API | `tests/test_api.py` | Health check, home page, chat error handling, upload security (admin key) and file-type validation |
 | Agent workflow | `tests/test_workflow.py` | Every routing decision and path: direct answer, documents, web fallback, query rewrite and retry, honest stop |
 
 The workflow tests replace OpenAI, Pinecone and Tavily with fakes that return scripted answers, so they are fast, free and deterministic, and need no API keys.
@@ -237,19 +246,63 @@ The workflow tests replace OpenAI, Pinecone and Tavily with fakes that return sc
 Run them locally:
 
 ```bash
-pip install pytest pytest-mock httpx
+pip install pytest pytest-mock httpx pytest-cov
 pytest -v
+pytest --cov=app --cov-report=term    # with a coverage report
 ```
+
+---
+
+## CI/CD and DevSecOps pipeline
+
+Every push to `main` runs the pipeline in `.github/workflows/tests.yml`. Each stage only runs if the previous ones pass, so a failing test or a security finding never reaches the live demo.
+
+```mermaid
+flowchart LR
+    P([git push]) --> T[Tests + coverage<br/>pytest]
+    P --> S[Secret scan<br/>gitleaks]
+    P --> D[Dependency scan<br/>pip-audit]
+    T --> Q[Code quality<br/>SonarQube Cloud]
+    T --> B
+    S --> B
+    D --> B[Build image]
+    B --> V{Image scan<br/>Trivy}
+    V -->|clean| H[Push to Docker Hub<br/>tagged with commit ID]
+    H --> A[Deploy to Azure<br/>Container Apps]
+    A --> K[Smoke test<br/>/health]
+```
+
+| Stage | Tool | Blocks deployment when |
+|---|---|---|
+| Tests | pytest | Any of the 32 tests fails |
+| Code quality | SonarQube Cloud | Reported only (quality gate visible in the badge) |
+| Secret scan | gitleaks | A password or key is found anywhere in the repository history |
+| Dependency scan | pip-audit | A Python dependency has a known vulnerability |
+| Image scan | Trivy | The Docker image has a HIGH or CRITICAL vulnerability with a fix available |
+| Deploy | Azure CLI | The Container App cannot be updated |
+| Smoke test | curl | The live app does not respond within about 3 minutes |
+
+**Safeguards**
+
+- Pull requests run the checks but never deploy.
+- Documentation-only changes (README, LICENSE, screenshots) do not trigger a rebuild.
+- Only one pipeline runs at a time.
+- Each image is tagged with its commit ID, so every live version traces back to exact code and can be rolled back.
+- Credentials are stored as encrypted GitHub secrets: a Docker Hub access token, and an Azure service principal scoped to the project's resource group only. The application's API keys stay in Azure and never pass through GitHub.
+
+**What the scans found and fixed**
+
+When the security checks were first enabled, pip-audit reported 37 known vulnerabilities in 6 packages (including Starlette, python-multipart, pypdf and langchain). Upgrading them broke the home page and seven API tests; the test suite caught this before deployment, the code was fixed, and a home page test was added. Trivy then flagged vulnerable packages bundled inside pip itself, which the application never uses, so the Dockerfile now removes pip from the runtime image and patches the base image's system packages.
 
 ---
 
 ## Deployment
 
-The app runs on **Azure Container Apps**, using a Docker image published to **Docker Hub**.
+The app runs on **Azure Container Apps**, using a Docker image published to **Docker Hub**. Releases are automatic: the CI/CD pipeline builds, scans and deploys every push to `main` that passes all checks.
 
 ```mermaid
 flowchart LR
-    A[GitHub repository<br/>source code] --> B[Docker build<br/>container image]
+    A[GitHub repository<br/>source code] --> G[GitHub Actions<br/>tests + security scans] --> B[Docker build<br/>container image]
     B --> C[Docker Hub<br/>joinsrikanth945/agentic-rag]
     C --> D[Azure Container Apps<br/>pulls image and runs it]
     D --> E([Public HTTPS endpoint])
@@ -259,7 +312,7 @@ flowchart LR
 
 | Component | Choice | Why |
 |---|---|---|
-| Source control | GitHub | Version history; tests run on every push |
+| Source control and CI/CD | GitHub, GitHub Actions | Version history; tests, scans and deployment on every push |
 | Packaging | Docker (`python:3.11-slim` base) | Same environment locally and in the cloud |
 | Image registry | Docker Hub (public) | Free hosting for the image |
 | Hosting | Azure Container Apps (Consumption plan) | Serverless containers, HTTPS included |
@@ -268,7 +321,10 @@ flowchart LR
 | Configuration | Container App secrets | API keys are kept out of the image and the repository |
 | Data | Separate `public-demo` namespace | The public demo can only reach the sample documents |
 
-### Deployment steps
+### Initial setup (one time)
+
+These steps created the Azure resources. After that, the pipeline handles every release.
+
 
 1. **Build the image** from the project folder:
 
@@ -307,6 +363,10 @@ flowchart LR
 
 ### Releasing a new version
 
+**Automatically (default):** push to `main`. The pipeline tests, scans, builds the image tagged with the commit ID, deploys it and runs a smoke test. Progress is visible in the repository's **Actions** tab.
+
+**Manually (fallback):** if the pipeline is unavailable, a release can still be done by hand:
+
 ```bash
 docker build -t agentic-rag .
 docker tag agentic-rag joinsrikanth945/agentic-rag:v2
@@ -315,7 +375,7 @@ az containerapp update --name agentic-rag --resource-group agentic-rag-rg \
   --image docker.io/joinsrikanth945/agentic-rag:v2
 ```
 
-Each release uses a new image tag, so Azure keeps a revision history and older versions can be restored.
+Each release uses a new image tag, so Azure keeps a revision history and older versions can be restored, for example by redeploying an earlier commit's image tag.
 
 ### Notes
 
@@ -328,6 +388,9 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 ## Roadmap
 
 - **Answer-quality evaluation:** score the real agent against a fixed set of questions and expected answers.
+- **End-to-end tests:** Playwright tests against the live deployment, run after each deploy.
+- **BDD scenarios:** agent behaviours described as Given/When/Then scenarios with pytest-bdd.
+- **Blocking quality gate:** make the SonarQube Cloud quality gate block deployment.
 - **Incremental ingestion:** process only new or changed files, with fixed chunk IDs to prevent duplicates.
 - **Document sources:** sync from Google Drive, Shared Drives or network folders.
 - **Rate limiting:** limit questions per visitor on the public demo.
@@ -337,4 +400,4 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 
 ## Acknowledgements and license
 
-This project builds on an open-source Agentic RAG project, adapted to the wealth banking domain, extended with a test suite, and deployed to Azure. See [LICENSE](LICENSE) for the license and original copyright.
+This project builds on an open-source Agentic RAG project, adapted to the wealth banking domain, extended with a test suite and a CI/CD and DevSecOps pipeline, and deployed to Azure. See [LICENSE](LICENSE) for the license and original copyright.
