@@ -7,10 +7,10 @@ on:
       - "README.md"
       - "LICENSE"
       - "img*.png"
-  pull_request:            # pull requests run the tests only, never deploy
+  pull_request:            # pull requests run the checks only, never deploy
 
 concurrency:
-  group: deploy-main       # one pipeline at a time, so two quick pushes don't clash
+  group: deploy-main       # one pipeline at a time
   cancel-in-progress: false
 
 env:
@@ -19,17 +19,19 @@ env:
   CONTAINER_APP: agentic-rag
 
 jobs:
-  # 1. Run the test suite (placeholder keys: every test fakes the outside services)
+  # 1. Tests + coverage, then code quality analysis with SonarQube Cloud
   test:
     runs-on: ubuntu-latest
     env:
-      OPENAI_API_KEY: test-key-not-used
+      OPENAI_API_KEY: test-key-not-used     # placeholders: every test fakes the outside services
       PINECONE_API_KEY: test-key-not-used
       TAVILY_API_KEY: test-key-not-used
       ADMIN_API_KEY: test-admin-key
     steps:
-      - name: Check out the code
+      - name: Check out the code (full history for Sonar)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,19 +42,67 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-mock httpx
+          pip install pytest pytest-mock httpx pytest-cov
 
-      - name: Run tests
-        run: pytest -v
+      - name: Run tests with coverage
+        run: pytest -v --cov=app --cov-report=xml --cov-report=term
 
-  # 2. Build the Docker image and push it to Docker Hub (only after tests pass, only on main)
+      - name: SonarQube Cloud analysis (report only for now)
+        uses: SonarSource/sonarqube-scan-action@v7
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # 2. Scan the repository for committed secrets (blocks deployment)
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets with gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 3. Scan Python dependencies for known vulnerabilities (blocks deployment)
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Audit dependencies with pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --desc
+
+  # 4. Build the image, scan it with Trivy, then push (only after all checks pass, only on main)
   build-and-push:
-    needs: test
+    needs: [test, secret-scan, dependency-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+
+      - name: Scan the image with Trivy (fail on high or critical)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -60,20 +110,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Push the image
+        run: |
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
 
-      - name: Build and push the image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ env.IMAGE }}:${{ github.sha }}
-            ${{ env.IMAGE }}:latest
-
-  # 3. Deploy the new image to Azure Container Apps, then 4. smoke-test it
+  # 5. Deploy to Azure Container Apps, then smoke-test the live app
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -96,7 +138,6 @@ jobs:
           FQDN=$(az containerapp show --name "$CONTAINER_APP" --resource-group "$RESOURCE_GROUP" \
                  --query properties.configuration.ingress.fqdn -o tsv)
           echo "Checking https://$FQDN"
-          # Retry for about 3 minutes to allow for the cold start
           for i in $(seq 1 18); do
             for path in /health /api/health; do
               if curl -fsS --max-time 20 "https://$FQDN$path" > /dev/null; then
