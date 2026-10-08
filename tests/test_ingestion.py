@@ -1,0 +1,68 @@
+﻿from docx import Document as DocxDocument
+
+from app.services.ingestion import chunk_documents, load_file
+
+SAMPLE_TEXT = "Advisors can view client portfolios in the Front Office module."
+
+
+def write_text_file(tmp_path, name, text):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+# ---------- Loading ----------
+
+def test_load_txt_file_returns_its_text(tmp_path):
+    path = write_text_file(tmp_path, "guide.txt", SAMPLE_TEXT)
+    docs = load_file(path)
+    assert len(docs) >= 1
+    assert "Front Office" in docs[0].page_content
+
+
+def test_load_markdown_file_returns_its_text(tmp_path):
+    path = write_text_file(tmp_path, "guide.md", "# MFA setup\n\nScan the QR code with the app.")
+    docs = load_file(path)
+    assert "QR code" in " ".join(d.page_content for d in docs)
+
+
+def test_load_docx_file_returns_its_text(tmp_path):
+    path = tmp_path / "guide.docx"
+    doc = DocxDocument()
+    doc.add_paragraph("Reset a user token from the admin console.")
+    doc.save(path)
+    docs = load_file(path)
+    assert "admin console" in " ".join(d.page_content for d in docs)
+
+
+def test_loaded_document_records_its_source(tmp_path):
+    path = write_text_file(tmp_path, "guide.txt", SAMPLE_TEXT)
+    docs = load_file(path)
+    assert "guide.txt" in str(docs[0].metadata.get("source", ""))
+
+
+# ---------- Chunking ----------
+
+def test_long_document_is_split_into_several_chunks(tmp_path):
+    long_text = "\n\n".join(f"Paragraph {i}: {SAMPLE_TEXT}" for i in range(200))
+    path = write_text_file(tmp_path, "long.txt", long_text)
+    chunks = chunk_documents(load_file(path))
+    assert len(chunks) > 1
+
+
+def test_chunks_are_never_empty(tmp_path):
+    long_text = "\n\n".join(f"Paragraph {i}: {SAMPLE_TEXT}" for i in range(200))
+    path = write_text_file(tmp_path, "long.txt", long_text)
+    chunks = chunk_documents(load_file(path))
+    assert all(c.page_content.strip() for c in chunks)
+
+
+def test_chunks_keep_the_source_of_their_document(tmp_path):
+    long_text = "\n\n".join(f"Paragraph {i}: {SAMPLE_TEXT}" for i in range(200))
+    path = write_text_file(tmp_path, "long.txt", long_text)
+    chunks = chunk_documents(load_file(path))
+    assert all("long.txt" in str(c.metadata.get("source", "")) for c in chunks)
+
+
+def test_no_documents_gives_no_chunks():
+    assert chunk_documents([]) == []
