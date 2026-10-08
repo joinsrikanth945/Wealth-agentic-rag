@@ -13,9 +13,12 @@ RUN apt-get update \
 
 COPY requirements.txt .
 
-# Upgrade Python's packaging tools too (fixes e.g. wheel CVE-2026-24049), then install the app's packages
+# Upgrade Python's packaging tools (fixes e.g. wheel CVE-2026-24049), install the app's packages,
+# then remove pip: it is only needed at build time, and it bundles its own older copies of
+# urllib3, msgpack and setuptools that Trivy flags.
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y pip
 
 COPY . .
 
