@@ -10,16 +10,6 @@ Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web inter
 
 ---
 
-## Screenshots
-
-![Assistant home screen](img.png)
-
-![Answer with agent trace](img_1.png)
-
-Deployed in Azure as a Container App:
-
-![Live demo on Azure Container Apps](img_2.png)
-
 ## The problem
 
 Teams supporting a wealth banking platform rely on long vendor guides and configuration documents: client channel guides, front office manuals, authentication setup instructions. Finding the right answer is slow:
