@@ -32,6 +32,7 @@ Example questions for the demo:
 - *What happens when an order fails the suitability check?*
 - *How do I register a LumenKey token for a new user?*
 - *What should I do if a user loses the phone with their token?*
+- *How long does an account closure take?* (answered from the scanned document, via OCR)
 
 ---
 
@@ -46,6 +47,7 @@ Real vendor documentation is proprietary, so **none of it is included in this re
 | `secure_access_token_guide.md` | MFA token app: registration, moving to a new phone, lost devices, common problems |
 | `company_it_handbook.md` | Sample internal IT policies |
 | `service_desk_runbook.md` | Sample service desk procedures |
+| `lumenwealth_fee_schedule_scanned.pdf` | **Scanned** (image-only) document: fees, account closure and portfolio transfers. Readable only through OCR |
 
 All sample documents are in `data/sample_kb/`. To use the assistant with your own documents, upload them through the interface (see [Adding documents](#adding-documents)).
 
@@ -103,12 +105,12 @@ The interface shows the **trace** for each answer, so you can see which path the
 
 Documents go through the same steps whether they come from the sample folder or the upload form:
 
-1. **Load:** text is extracted from PDF, Word (.docx), text and Markdown files.
+1. **Load:** text is extracted from PDF, Word (.docx), text and Markdown files; scanned PDF pages and images are read with OCR.
 2. **Chunk:** the text is split into small, overlapping passages, so retrieval can return the exact section that answers a question.
 3. **Embed:** each chunk is converted to a vector with OpenAI's `text-embedding-3-small`.
 4. **Store:** vectors are saved in Pinecone, in the namespace set by `PINECONE_NAMESPACE`. The public demo uses its own `public-demo` namespace, which contains only the sample documents.
 
-Scanned PDFs (images of pages, with no selectable text) are not supported.
+**Scanned documents (OCR):** PDF pages with no extractable text, such as scans, are rendered as images and read with **Tesseract OCR**. Normal PDF pages skip OCR, so they stay fast. Image files (`.png`, `.jpg`, `.jpeg`) are OCR'd directly. Chunks produced by OCR are marked with `ocr: true` in their metadata. Accuracy is high for clean, typed scans; handwriting and poor photos are less reliable.
 
 ---
 
@@ -123,6 +125,7 @@ Scanned PDFs (images of pages, with no selectable text) are not supported.
 | Web search | Tavily |
 | Backend API | FastAPI, Uvicorn |
 | Frontend | HTML (Jinja2 templates), CSS, JavaScript |
+| OCR | Tesseract (pytesseract), pypdfium2 for rendering PDF pages |
 | Audit log | SQLite |
 | Testing | pytest, pytest-mock, pytest-cov, FastAPI TestClient |
 | CI/CD | GitHub Actions |
@@ -167,6 +170,7 @@ Wealth-agentic-rag/
 ### Prerequisites
 
 - Python 3.11
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract), for scanned documents (Windows: `scoop install tesseract`; Linux: `apt-get install tesseract-ocr`)
 - API keys for [OpenAI](https://platform.openai.com/), [Pinecone](https://www.pinecone.io/) and [Tavily](https://tavily.com/)
 
 ### 1. Set up the environment
@@ -224,7 +228,7 @@ docker run -p 8080:8080 --env-file .env agentic-rag
 ## Adding documents
 
 1. Open the app and go to **Add Company Document**.
-2. Choose a PDF, Word (.docx), text or Markdown file.
+2. Choose a PDF (including scanned PDFs), Word (.docx), text, Markdown or image (.png, .jpg) file.
 3. Enter the admin key and click **Index Document**.
 
 The file is chunked, embedded and stored in Pinecone immediately, and is available for questions straight away. Older `.doc` files must be saved as `.docx` first.
@@ -233,11 +237,11 @@ The file is chunked, embedded and stored in Pinecone immediately, and is availab
 
 ## Testing
 
-The project has 32 automated tests, run with pytest on every push through GitHub Actions, with coverage reported to SonarQube Cloud.
+The project has 36 automated tests, run with pytest on every push through GitHub Actions, with coverage reported to SonarQube Cloud.
 
 | Layer | File | What it checks |
 |---|---|---|
-| Ingestion | `tests/test_ingestion.py` | Loading text, Markdown and Word files; chunking; source tracking |
+| Ingestion | `tests/test_ingestion.py` | Loading text, Markdown and Word files; chunking; source tracking; OCR of scanned PDFs and images (using a generated scan with known text); normal PDFs skip OCR |
 | API | `tests/test_api.py` | Health check, home page, chat error handling, upload security (admin key) and file-type validation |
 | Agent workflow | `tests/test_workflow.py` | Every routing decision and path: direct answer, documents, web fallback, query rewrite and retry, honest stop |
 
@@ -274,7 +278,7 @@ flowchart LR
 
 | Stage | Tool | Blocks deployment when |
 |---|---|---|
-| Tests | pytest | Any of the 32 tests fails |
+| Tests | pytest | Any of the 36 tests fails |
 | Code quality | SonarQube Cloud | Reported only (quality gate visible in the badge) |
 | Secret scan | gitleaks | A password or key is found anywhere in the repository history |
 | Dependency scan | pip-audit | A Python dependency has a known vulnerability |

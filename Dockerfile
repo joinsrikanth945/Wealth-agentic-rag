@@ -6,9 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
-# Apply the latest security patches to the base image's system packages
+# Apply the latest security patches to the base image's system packages,
+# and install Tesseract OCR for scanned PDFs and images
 RUN apt-get update \
     && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

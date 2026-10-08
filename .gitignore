@@ -224,3 +224,6 @@ data/audit.db
 .vscode/
 
 *.pdf
+
+# Allow the fictional sample documents (including the scanned sample PDF)
+!data/sample_kb/*.pdf
