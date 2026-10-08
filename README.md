@@ -430,7 +430,7 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 - **Document sources:** sync from Google Drive, Shared Drives or network folders.
 - **Rate limiting:** limit questions per visitor on the public demo.
 - **Access control:** restrict documents by team or role.
-
+- **Azure edition:** the same app on Azure OpenAI, see [Wealth-agentic-rag-azure-openai](https://github.com/joinsrikanth945/Wealth-agentic-rag-azure-openai).
 ---
 
 ## Acknowledgements and license
