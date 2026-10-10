@@ -1,10 +1,16 @@
 # Agentic RAG Assistant for Wealth Banking Support
 
+[![CI/CD](https://github.com/joinsrikanth945/Wealth-agentic-rag/actions/workflows/tests.yml/badge.svg)](https://github.com/joinsrikanth945/Wealth-agentic-rag/actions/workflows/tests.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=coverage)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=joinsrikanth945_Wealth-agentic-rag&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=joinsrikanth945_Wealth-agentic-rag)
+
 **Live demo:** https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io
 
 An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff questions about wealth banking platforms and secure access, using the organization's own documents first and the public web only when the documents fall short.
 
-Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer. Tested with **pytest** and delivered through a **CI/CD and DevSecOps pipeline** (GitHub Actions, SonarQube Cloud, gitleaks, pip-audit, Trivy) that deploys automatically to **Azure Container Apps**.
+Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer. Tested with **pytest** and **Playwright** (Python and TypeScript) and delivered through a **CI/CD and DevSecOps pipeline** (GitHub Actions, SonarQube Cloud, gitleaks, pip-audit, Trivy) that deploys automatically to **Azure Container Apps**.
 
 ---
 
@@ -121,7 +127,7 @@ Documents go through the same steps whether they come from the sample folder or 
 | Frontend | HTML (Jinja2 templates), CSS, JavaScript |
 | OCR | Tesseract (pytesseract), pypdfium2 for rendering PDF pages |
 | Audit log | SQLite |
-| Testing | pytest, pytest-mock, pytest-cov, FastAPI TestClient, Playwright |
+| Testing | pytest, pytest-mock, pytest-cov, FastAPI TestClient, Playwright (Python and TypeScript) |
 | CI/CD | GitHub Actions |
 | Code quality | SonarQube Cloud (quality gate, coverage, security hotspots) |
 | Security scanning | gitleaks (secrets), pip-audit (dependencies), Trivy (container image) |
@@ -145,7 +151,9 @@ Wealth-agentic-rag/
 │   └── main.py                # FastAPI app, templates and static files
 ├── data/sample_kb/            # Fictional sample documents loaded by ingest_sample_kb.py
 ├── tests/                     # pytest test suite
+│   ├── e2e/                   # Playwright end-to-end tests (Python)
 │   └── eval/                  # answer-quality evaluation: questions, scorer, runner, report
+├── e2e-ts/                    # Playwright end-to-end framework (TypeScript, Page Object Model)
 ├── .github/workflows/tests.yml # CI/CD pipeline: tests, Sonar, security scans, build, deploy
 ├── templates/index.html       # Web interface
 ├── static/                    # CSS and JavaScript for the interface
@@ -239,11 +247,11 @@ The project has 45 automated tests, run with pytest on every push through GitHub
 | Ingestion | `tests/test_ingestion.py` | Loading text, Markdown and Word files; chunking; source tracking; OCR of scanned PDFs and images (using a generated scan with known text); normal PDFs skip OCR |
 | API | `tests/test_api.py` | Health check, home page, chat error handling, upload security (admin key) and file-type validation |
 | Agent workflow | `tests/test_workflow.py` | Every routing decision and path: direct answer, documents, web fallback, query rewrite and retry, honest stop |
+| Evaluation scorer | `tests/test_eval_scoring.py` | The answer-quality scorer itself: it must fail wrong facts, wrong sources, wrong paths, ungrounded answers and invented figures |
+| End-to-end (Python) | `tests/e2e/test_demo_e2e.py` | 5 Playwright tests in a real Chromium browser against the deployed app: page loads, a document answer with citation and trace, a direct answer, the issue #1 trap question, and upload refused without the admin key. Run after every deployment |
+| End-to-end (TypeScript) | `e2e-ts/` | The same 5 user journeys in a TypeScript Playwright framework: Page Object Model, a custom fixture, HTML report. Run after every deployment |
 
 The workflow tests replace OpenAI, Pinecone and Tavily with fakes that return scripted answers, so they are fast, free and deterministic, and need no API keys.
-
-| End-to-end (browser) | `tests/e2e/test_demo_e2e.py` | 5 Playwright tests in a real Chromium browser against the deployed app: page loads, a document answer with citation and trace, a direct answer, the issue #1 trap question, and upload refused without the admin key. Run after every deployment |
-| Evaluation scorer | `tests/test_eval_scoring.py` | The answer-quality scorer itself: it must fail wrong facts, wrong sources, wrong paths, ungrounded answers and invented figures |
 
 Run them locally:
 
@@ -260,6 +268,42 @@ pip install pytest-playwright
 python -m playwright install chromium
 E2E_BASE_URL=https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io pytest tests/e2e -v
 ```
+
+### TypeScript Playwright framework
+
+The same end-to-end checks also exist as a TypeScript framework in `e2e-ts/`, built the way a larger UI test suite would be:
+
+```
+e2e-ts/
+├── playwright.config.ts   # base URL from E2E_BASE_URL, timeouts for LLM answers, retries in CI, HTML report
+├── pages/ChatPage.ts      # Page Object: every selector and user action in one place
+└── tests/
+    ├── fixtures.ts        # custom fixture: each test gets a ChatPage already open
+    └── chat.spec.ts       # the tests, grouped by feature and tagged @smoke / @regression
+```
+
+| Design choice | Why |
+|---|---|
+| Page Object Model | Tests read as user steps (`chat.ask(...)`); a change in the HTML is fixed in one file |
+| Custom fixture | No repeated setup: opening the page and waiting for it is done once |
+| Web-first assertions | `expect(...)` waits for the agent's answer instead of fixed sleeps, which avoids flaky tests |
+| Long timeouts | LLM answers and the demo's cold start take seconds, not milliseconds |
+| Retries in CI only | A rare network blip is absorbed in the pipeline; locally every failure is visible |
+| Trace, screenshot and video on failure | Evidence to debug a failed run without re-running it |
+| Tags | `--grep @smoke` runs the quick checks; `--grep @regression` runs the issue #1 guard |
+
+Run it against the live demo (Node.js 18 or newer):
+
+```powershell
+cd e2e-ts
+npm ci
+npx playwright install chromium
+$env:E2E_BASE_URL = "https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io"
+npx playwright test
+npx playwright show-report      # opens the HTML report
+```
+
+In the pipeline, the TypeScript suite runs after every deployment, next to the Python one, and the HTML report is attached to each run as the `playwright-ts-report` artifact.
 
 ---
 
@@ -286,6 +330,16 @@ The set covers every sample document, including facts that exist only in the **s
 
 The evaluation never runs with plain `pytest` or in the CI pipeline, because it uses the real APIs: one run costs a few cents. The scorer itself is unit-tested for free in `tests/test_eval_scoring.py`.
 
+### Findings
+
+Defects found by the evaluation, and how they were fixed. Each one stays in `questions.yaml` as a regression case.
+
+| # | Finding | Impact | Root cause | Fix | Verification |
+|---|---|---|---|---|---|
+| 1 | Asked *"What is LumenWealth's custody fee for crypto assets?"*, the agent answered **"0.25%"** with a citation, although the documents never mention crypto ([issue #1](../../issues/1)) | High: a confident, cited but invented fee. A user would trust it | The grader accepted evidence on a **related** topic (the general custody fee) as sufficient, and the answer step applied a general rule to a case the documents don't cover | The grader now requires evidence that answers the **specific** question; the answer step must never extend a figure or rule to a case the documents don't cover, and must say so instead | Trap case now passes; full evaluation **18/18** with no regressions (see `tests/eval/eval_report.md`) |
+
+**Lesson:** relevant evidence is not the same as sufficient evidence. A system that works from documents has to recognise when the source does *not* say something.
+
 ---
 
 ## CI/CD and DevSecOps pipeline
@@ -305,7 +359,8 @@ flowchart LR
     V -->|clean| H[Push to Docker Hub<br/>tagged with commit ID]
     H --> A[Deploy to Azure<br/>Container Apps]
     A --> K[Smoke test<br/>/health]
-    K --> E[End-to-end tests<br/>Playwright, real browser]
+    K --> E[End-to-end tests<br/>Playwright Python]
+    K --> E2[End-to-end tests<br/>Playwright TypeScript]
 ```
 
 | Stage | Tool | Blocks deployment when |
@@ -317,7 +372,7 @@ flowchart LR
 | Image scan | Trivy | The Docker image has a HIGH or CRITICAL vulnerability with a fix available |
 | Deploy | Azure CLI | The Container App cannot be updated |
 | Smoke test | curl | The live app does not respond within about 3 minutes |
-| End-to-end | Playwright (Chromium) | A user flow fails in the deployed app; screenshots and a trace recording of failed tests are attached to the run |
+| End-to-end | Playwright (Chromium), Python and TypeScript suites in parallel | A user flow fails in the deployed app; screenshots and traces of failed tests, and the TypeScript HTML report, are attached to the run |
 
 **Safeguards**
 
