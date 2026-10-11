@@ -342,6 +342,110 @@ Defects found by the evaluation, and how they were fixed. Each one stays in `que
 
 ---
 
+## Test commands (quick reference)
+
+Every way to test the project, in one place. Commands are for **PowerShell** on Windows; on macOS/Linux, activate the environment with `source .venv/bin/activate` and set variables with `export NAME=value` instead of `$env:NAME = "value"`.
+
+### One-time setup
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install pytest pytest-mock httpx pytest-cov pytest-playwright pip-audit
+python -m playwright install chromium
+
+cd e2e-ts
+npm ci                              # needs Node.js 18 or newer (node -v)
+npx playwright install chromium
+cd ..
+```
+
+### 1. Unit tests (free, a few seconds, no API keys)
+
+```powershell
+pytest                                            # all tests (end-to-end tests are skipped)
+pytest -v                                         # one line per test
+pytest tests/test_ingestion.py                    # one file
+pytest tests/test_api.py::test_health_returns_ok  # one test
+pytest -k "upload"                                # tests whose name contains "upload"
+pytest -x                                         # stop at the first failure
+pytest --lf                                       # re-run only the tests that failed last time
+pytest --cov=app --cov-report=term-missing        # coverage, with the missing line numbers
+pytest --cov=app --cov-report=html                # coverage report: open htmlcov/index.html
+```
+
+| File | Tests | Checks |
+|---|---|---|
+| `tests/test_setup.py` | 2 | pytest runs; the app imports |
+| `tests/test_ingestion.py` | 12 | Loading, chunking, OCR |
+| `tests/test_api.py` | 8 | Endpoints, upload security, home page |
+| `tests/test_workflow.py` | 14 | Every agent route, with a fake LLM |
+| `tests/test_eval_scoring.py` | 9 | The evaluation scorer itself |
+
+### 2. Answer-quality evaluation (real APIs, a few cents per run)
+
+```powershell
+python tests/eval/run_eval.py                       # all 18 cases, public-demo namespace
+python tests/eval/run_eval.py --only scanned        # cases whose id contains "scanned"
+python tests/eval/run_eval.py --only trap           # only the trap question (issue #1)
+python tests/eval/run_eval.py --threshold 0.9       # stricter pass rate (default 0.85)
+python tests/eval/run_eval.py --namespace my-space  # another Pinecone namespace
+```
+
+The result is written to `tests/eval/eval_report.md`. The command exits with an error when the pass rate is below the threshold.
+
+### 3. End-to-end tests in Python (real browser, about 1–2 cents per run)
+
+```powershell
+$env:E2E_BASE_URL = "https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io"
+pytest tests/e2e -v                               # all 5 browser tests
+pytest tests/e2e -v --headed --slowmo 500         # watch the browser, slowed down
+pytest tests/e2e -k trap -v                       # only the trap question
+pytest tests/e2e -v --tracing retain-on-failure --screenshot only-on-failure --output test-results
+python -m playwright show-trace test-results/<test-folder>/trace.zip   # replay a failed test
+Remove-Item Env:E2E_BASE_URL                      # back to skipping the e2e tests
+```
+
+To test a local server instead, start it with `python run.py` and set `E2E_BASE_URL` to `http://127.0.0.1:8080`.
+
+### 4. End-to-end tests in TypeScript (real browser, about 1–2 cents per run)
+
+```powershell
+cd e2e-ts
+$env:E2E_BASE_URL = "https://agentic-rag.wittybeach-2baef286.eastus2.azurecontainerapps.io"
+npx playwright test                         # all 5 tests
+npx playwright test --headed --workers=1    # watch the browser, one test at a time
+npx playwright test --ui                    # interactive window: run and inspect tests step by step
+npx playwright test --grep @smoke           # quick checks only
+npx playwright test --grep @regression      # the issue #1 guard only
+npx playwright test -g "greeting"           # tests whose name contains "greeting"
+npx playwright test --debug                 # step through one action at a time
+npx playwright test --list                  # list the tests without running them
+npx playwright show-report                  # open the HTML report of the last run
+```
+
+Without `E2E_BASE_URL`, the TypeScript tests run against `http://127.0.0.1:8080`.
+
+### 5. Security checks (the same checks run in the pipeline)
+
+```powershell
+pip-audit -r requirements.txt --desc        # known vulnerabilities in Python dependencies
+```
+
+Secret scanning (gitleaks), image scanning (Trivy) and SonarQube Cloud run automatically on every push; see the pipeline below. If you have the tools installed locally, `gitleaks detect --source .` and `trivy image <image-name>` run the same scans.
+
+### What runs where
+
+| Check | On your PC | In the pipeline | Cost |
+|---|---|---|---|
+| Unit tests + coverage | `pytest` | Every push | Free |
+| Evaluation | `python tests/eval/run_eval.py` | Not run (real APIs) | A few cents |
+| E2E Python | `pytest tests/e2e` with `E2E_BASE_URL` | After every deploy | ~1–2 cents |
+| E2E TypeScript | `npx playwright test` in `e2e-ts/` | After every deploy | ~1–2 cents |
+| Dependency scan | `pip-audit -r requirements.txt` | Every push | Free |
+| Secret scan, image scan, code quality | Optional | Every push | Free |
+
+---
+
 ## CI/CD and DevSecOps pipeline
 
 Every push to `main` runs the pipeline in `.github/workflows/tests.yml`. Each stage only runs if the previous ones pass, so a failing test or a security finding never reaches the live demo.
