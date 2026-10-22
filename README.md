@@ -12,6 +12,8 @@ An agentic Retrieval-Augmented Generation (RAG) assistant that answers staff que
 
 Built with **LangGraph, FastAPI, OpenAI, Pinecone and Tavily**, with a web interface for chatting, uploading documents and inspecting how the agent reached each answer. Tested with **pytest** and **Playwright** (Python and TypeScript) and delivered through a **CI/CD and DevSecOps pipeline** (GitHub Actions, SonarQube Cloud, gitleaks, pip-audit, Trivy) that deploys automatically to **Azure Container Apps**.
 
+> **Note:** This is an independent educational project. It is not affiliated with, endorsed by, or connected to any bank, wealth management platform or authentication vendor. All product names in the sample data (such as LumenWealth and LumenKey) are fictional.
+
 ---
 
 ## The problem
@@ -163,7 +165,9 @@ Wealth-agentic-rag/
 ├── requirements.txt
 ├── pytest.ini                 # pytest configuration
 ├── sonar-project.properties   # SonarQube Cloud settings
-└── .env.example               # Settings template
+├── .env.example               # Settings template
+├── LICENSE                    # Apache License 2.0
+└── NOTICE                     # Copyright and attribution
 ```
 
 ---
@@ -175,6 +179,8 @@ Wealth-agentic-rag/
 - Python 3.11
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract), for scanned documents (Windows: `scoop install tesseract`; Linux: `apt-get install tesseract-ocr`)
 - API keys for [OpenAI](https://platform.openai.com/), [Pinecone](https://www.pinecone.io/) and [Tavily](https://tavily.com/)
+
+> Running the project uses your own API keys and may incur charges from these providers. Set a spending limit on your OpenAI account before you start.
 
 ### 1. Set up the environment
 
@@ -199,11 +205,13 @@ Copy-Item .env.example .env         # macOS/Linux: cp .env.example .env
 | `OPENAI_API_KEY` | Yes | Used for the LLM and embeddings |
 | `PINECONE_API_KEY` | Yes | Vector store |
 | `TAVILY_API_KEY` | Yes | Web search fallback |
-| `ADMIN_API_KEY` | Recommended | Password for uploading documents (default: `change-me`) |
+| `ADMIN_API_KEY` | Yes | Password for uploading documents. Set your own strong value; never deploy with a placeholder |
 | `PINECONE_NAMESPACE` | No | Pinecone namespace to read and write (default in `app/core/config.py`) |
 | `APP_NAME` | No | Name shown in the interface |
 
 Other defaults (index name, models, retry limit) are in `app/core/config.py` and can be overridden in `.env`.
+
+> Never commit your `.env` file or show it on screen. It is listed in `.gitignore`, and gitleaks scans every push for leaked keys.
 
 ### 3. Load the sample documents
 
@@ -235,6 +243,8 @@ docker run -p 8080:8080 --env-file .env agentic-rag
 3. Enter the admin key and click **Index Document**.
 
 The file is chunked, embedded and stored in Pinecone immediately, and is available for questions straight away. Older `.doc` files must be saved as `.docx` first.
+
+Only upload documents you have the right to use. Do not upload confidential or proprietary documents to the public demo.
 
 ---
 
@@ -481,7 +491,7 @@ flowchart LR
 **Safeguards**
 
 - Pull requests run the checks but never deploy.
-- Documentation-only changes (README, LICENSE, screenshots) do not trigger a rebuild.
+- Documentation-only changes (README, LICENSE, NOTICE, screenshots) do not trigger a rebuild.
 - Only one pipeline runs at a time.
 - Each image is tagged with its commit ID, so every live version traces back to exact code and can be rolled back.
 - Credentials are stored as encrypted GitHub secrets: a Docker Hub access token, and an Azure service principal scoped to the project's resource group only. The application's API keys stay in Azure and never pass through GitHub.
@@ -520,7 +530,6 @@ flowchart LR
 ### Initial setup (one time)
 
 These steps created the Azure resources. After that, the pipeline handles every release.
-
 
 1. **Build the image** from the project folder:
 
@@ -590,8 +599,17 @@ Each release uses a new image tag, so Azure keeps a revision history and older v
 - **Rate limiting:** limit questions per visitor on the public demo.
 - **Access control:** restrict documents by team or role.
 - **Azure edition:** the same app on Azure OpenAI, see [Wealth-agentic-rag-azure-openai](https://github.com/joinsrikanth945/Wealth-agentic-rag-azure-openai).
+
 ---
 
 ## Acknowledgements and license
 
-This project builds on an open-source Agentic RAG project, adapted to the wealth banking domain, extended with a test suite and a CI/CD and DevSecOps pipeline, and deployed to Azure. See [LICENSE](LICENSE) for the license and original copyright.
+This project is adapted from [Enterprise IT Support Agentic RAG Copilot](https://github.com/entbappy/Enterprise-IT-Support-Agentic-RAG-Copilot) by Bappy Ahmed ([@entbappy](https://github.com/entbappy)), licensed under the Apache License 2.0. The original provided the LangGraph agentic RAG workflow (route, retrieve, grade, web search, rewrite, generate), the FastAPI app, the web interface, document ingestion, audit logging and the IT sample documents.
+
+My changes: adapted it to the wealth banking domain with new fictional sample documents (LumenWealth), switched to OpenAI models and embeddings, added OCR for scanned documents, tightened evidence grading (issue #1), and added unit, end-to-end and answer-quality tests, a CI/CD and DevSecOps pipeline, and Azure deployment. Files adapted from the original project carry a header noting that they were modified.
+
+The LumenWealth documents in `data/sample_kb/` are fictional and written for this project; `company_it_handbook.md` and `service_desk_runbook.md` come from the original project. No real vendor or employer documentation is included.
+
+Copyright 2026 Sreekanth Dara (joinsrikanth945) for the modifications. Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for copyright and attribution details.
+
+The software is provided "as is", without warranty of any kind. It is a learning project and does not provide financial, legal or security advice.
